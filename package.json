@@ -1,0 +1,12 @@
+{
+  "name": "distributed-kv-store",
+  "version": "1.0.0",
+  "description": "Checkpoint: a simulated distributed key-value store using consistent hashing for data partitioning, replication for availability, and an LRU+TTL cache layer for performance.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "demo": "node index.js > output.txt"
+  },
+  "license": "MIT",
+  "dependencies": {}
+}
