@@ -1,0 +1,210 @@
+
+=== Cluster startup: adding nodeA, nodeB, nodeC ===
+Added nodeA (migrated 0 existing keys onto it)
+Added nodeB (migrated 0 existing keys onto it)
+Added nodeC (migrated 0 existing keys onto it)
+
+=== Consistent hashing: placing the sample users ===
+user:101 -> primary=nodeC, replicas=[nodeC, nodeB] (wrote to 2 node(s))
+user:102 -> primary=nodeC, replicas=[nodeC, nodeB] (wrote to 2 node(s))
+user:103 -> primary=nodeA, replicas=[nodeA, nodeB] (wrote to 2 node(s))
+user:104 -> primary=nodeC, replicas=[nodeC, nodeA] (wrote to 2 node(s))
+user:105 -> primary=nodeA, replicas=[nodeA, nodeB] (wrote to 2 node(s))
+user:106 -> primary=nodeB, replicas=[nodeB, nodeA] (wrote to 2 node(s))
+
+=== Cluster layout after initial writes (client never sees this - it is for inspection only) ===
+{
+  "nodeA": {
+    "alive": true,
+    "keys": [
+      "user:103",
+      "user:104",
+      "user:105",
+      "user:106"
+    ],
+    "cache": {
+      "size": 3,
+      "hits": 0,
+      "misses": 0
+    }
+  },
+  "nodeB": {
+    "alive": true,
+    "keys": [
+      "user:101",
+      "user:102",
+      "user:103",
+      "user:105",
+      "user:106"
+    ],
+    "cache": {
+      "size": 3,
+      "hits": 0,
+      "misses": 0
+    }
+  },
+  "nodeC": {
+    "alive": true,
+    "keys": [
+      "user:101",
+      "user:102",
+      "user:104"
+    ],
+    "cache": {
+      "size": 3,
+      "hits": 0,
+      "misses": 0
+    }
+  }
+}
+
+=== Reads via the transparent client API (cluster.get) - cold cache ===
+user:101 -> {"name":"Alice"} (served by nodeC, source=cache)
+user:102 -> {"name":"Bob"} (served by nodeC, source=cache)
+user:103 -> {"name":"Charlie"} (served by nodeA, source=store)
+user:104 -> {"name":"Diana"} (served by nodeC, source=cache)
+user:105 -> {"name":"Eve"} (served by nodeA, source=cache)
+user:106 -> {"name":"Frank"} (served by nodeB, source=cache)
+
+=== Re-reading the same keys - should now be served from cache ===
+user:101 -> {"name":"Alice"} (served by nodeC, source=cache)
+user:102 -> {"name":"Bob"} (served by nodeC, source=cache)
+user:103 -> {"name":"Charlie"} (served by nodeA, source=cache)
+user:104 -> {"name":"Diana"} (served by nodeC, source=cache)
+user:105 -> {"name":"Eve"} (served by nodeA, source=cache)
+user:106 -> {"name":"Frank"} (served by nodeB, source=cache)
+
+=== Node join: adding nodeD to the ring ===
+nodeD joined - 2 key-copies migrated onto it (out of 6 keys x 2 replicas = 12 total copies)
+Cluster layout after join:
+{
+  "nodeA": {
+    "alive": true,
+    "keys": [
+      "user:103",
+      "user:104",
+      "user:105",
+      "user:106"
+    ],
+    "cache": {
+      "size": 3,
+      "hits": 3,
+      "misses": 1
+    }
+  },
+  "nodeB": {
+    "alive": true,
+    "keys": [
+      "user:101",
+      "user:102",
+      "user:103",
+      "user:105",
+      "user:106"
+    ],
+    "cache": {
+      "size": 3,
+      "hits": 2,
+      "misses": 0
+    }
+  },
+  "nodeC": {
+    "alive": true,
+    "keys": [
+      "user:101",
+      "user:102",
+      "user:104"
+    ],
+    "cache": {
+      "size": 3,
+      "hits": 6,
+      "misses": 0
+    }
+  },
+  "nodeD": {
+    "alive": true,
+    "keys": [
+      "user:101"
+    ],
+    "cache": {
+      "size": 1,
+      "hits": 0,
+      "misses": 0
+    }
+  }
+}
+
+=== Simulating a failure of nodeA ===
+nodeA is now marked as down. Reading all keys again:
+user:101 -> [OK] {"name":"Alice"} (served by nodeC, replicas=[nodeC, nodeD])
+user:102 -> [OK] {"name":"Bob"} (served by nodeC, replicas=[nodeC, nodeB])
+user:103 -> [OK] {"name":"Charlie"} (served by nodeB, replicas=[nodeA, nodeB])
+user:104 -> [OK] {"name":"Diana"} (served by nodeC, replicas=[nodeC, nodeA])
+user:105 -> [OK] {"name":"Eve"} (served by nodeB, replicas=[nodeA, nodeB])
+user:106 -> [OK] {"name":"Frank"} (served by nodeB, replicas=[nodeB, nodeA])
+
+Notice: every key is still served (replication meant a live replica always exists),
+demonstrating limited-availability degradation rather than a full outage.
+
+=== Recovering nodeA ===
+nodeA is back up.
+
+=== Node leave: removing nodeB from the cluster ===
+nodeB left - 4 key-copies re-homed onto its surviving replicas
+Cluster layout after leave:
+{
+  "nodeA": {
+    "alive": true,
+    "keys": [
+      "user:103",
+      "user:104",
+      "user:105",
+      "user:106",
+      "user:102"
+    ],
+    "cache": {
+      "size": 3,
+      "hits": 3,
+      "misses": 1
+    }
+  },
+  "nodeC": {
+    "alive": true,
+    "keys": [
+      "user:101",
+      "user:102",
+      "user:104",
+      "user:105"
+    ],
+    "cache": {
+      "size": 3,
+      "hits": 9,
+      "misses": 0
+    }
+  },
+  "nodeD": {
+    "alive": true,
+    "keys": [
+      "user:101",
+      "user:103",
+      "user:106"
+    ],
+    "cache": {
+      "size": 3,
+      "hits": 0,
+      "misses": 0
+    }
+  }
+}
+
+=== Final sanity check: every key is still reachable after the leave ===
+user:101 -> {"name":"Alice"} (served by nodeC)
+user:102 -> {"name":"Bob"} (served by nodeC)
+user:103 -> {"name":"Charlie"} (served by nodeA)
+user:104 -> {"name":"Diana"} (served by nodeC)
+user:105 -> {"name":"Eve"} (served by nodeA)
+user:106 -> {"name":"Frank"} (served by nodeA)
+
+=== Cache stats per surviving node ===
+nodeA: {"size":3,"hits":5,"misses":2}
+nodeC: {"size":3,"hits":9,"misses":3}
+nodeD: {"size":3,"hits":0,"misses":0}
